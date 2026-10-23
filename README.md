@@ -24,7 +24,7 @@ Sisa waktu memperhitungkan *speed* di Media Source (misalnya 200% berarti sisa w
 
 ## Pasang di Windows
 
-Butuh OBS Studio 32 versi 64-bit. File plugin dibuat oleh GitHub Actions (lihat [Build lewat CMake](#build-lewat-cmake-windows-macos-universal-linux)).
+Butuh OBS Studio 32 versi 64-bit. File plugin dibuat oleh GitHub Actions (lihat [Build lewat CMake](#build-lewat-cmake-windows-dan-macos-universal)).
 
 1. Buka tab **Actions** repo ini, pilih run **Build** terbaru yang berhasil, unduh artifact `scene-color-countdown-1.2.0-windows-x64`, lalu ekstrak zip-nya.
 2. Tutup OBS.
@@ -48,12 +48,12 @@ make install   # salin ke ~/Library/Application Support/obs-studio/plugins/
 
 Plugin di-link langsung ke `libobs`, `obs-frontend-api`, dan Qt milik `/Applications/OBS.app`, jadi versinya selalu sama dengan OBS yang terpasang. Restart OBS setelah `make install`. Untuk menghapus: `make uninstall`.
 
-## Build lewat CMake (Windows, macOS universal, Linux)
+## Build lewat CMake (Windows dan macOS universal)
 
 Setup CMake mengikuti [obs-plugintemplate](https://github.com/obsproject/obs-plugintemplate) resmi:
 
 - `buildspec.json`: nama dan versi plugin, plus versi dan hash SHA-256 sumber OBS 32.2.2 serta obs-deps 2026-07-15 (Qt 6.11.1).
-- `CMakePresets.json`: preset `windows-x64`, `macos`, dan `ubuntu-x86_64`, plus varian `-ci` yang menjadikan warning sebagai error.
+- `CMakePresets.json`: preset `windows-x64` dan `macos`, plus varian `-ci` yang menjadikan warning sebagai error. Preset `ubuntu-x86_64` dari template masih ada, tetapi Linux tidak dibuild di CI.
 - `cmake/`: modul dari template, dengan dua perubahan: C++20, dan di Windows hasil install memakai susunan folder OBS (`obs-plugins/64bit`, `data/obs-plugins/<nama>`).
 
 Configure pertama mengunduh sumber OBS dan obs-deps ke `.deps/`, lalu mem-build `libobs` dan `obs-frontend-api` sekali (beberapa menit).
@@ -65,7 +65,6 @@ Workflow `.github/workflows/build.yaml` berjalan saat ada push ke `main`, tag, p
 | `…-windows-x64` | `obs-plugins/64bit/scene-color-countdown.dll` dan `data/obs-plugins/scene-color-countdown/locale/`, siap disalin ke folder OBS |
 | `…-windows-x64-pdb` | simbol debug untuk `.dll` |
 | `…-macos-universal` | zip berisi `scene-color-countdown.plugin` (arm64 + x86_64, ad-hoc signed) untuk `~/Library/Application Support/obs-studio/plugins/`. Kalau macOS memblokirnya, jalankan `xattr -dr com.apple.quarantine` pada folder `.plugin` |
-| `…-ubuntu-24.04-x86_64` | folder `scene-color-countdown/` untuk `~/.config/obs-studio/plugins/` |
 
 Build manual di Windows (Visual Studio 2022 dengan workload C++, CMake 3.28+):
 
