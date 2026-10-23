@@ -20,6 +20,7 @@ jobs:
   windows:
     name: Windows x64
     runs-on: windows-2022
+    timeout-minutes: 30
     defaults:
       run:
         shell: pwsh
@@ -71,6 +72,7 @@ jobs:
   macos:
     name: macOS Universal
     runs-on: macos-26
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -117,6 +119,8 @@ jobs:
   ubuntu:
     name: Ubuntu 24.04 x86_64
     runs-on: ubuntu-24.04
+    # Without the apt cache, a slow mirror once made the install step take ~45 minutes
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -125,14 +129,37 @@ jobs:
         run: |
           echo "name=$(jq -r .name buildspec.json)" >> "$GITHUB_OUTPUT"
           echo "version=$(jq -r .version buildspec.json)" >> "$GITHUB_OUTPUT"
+          echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+
+      # The ~170 packages obs-studio pulls in are kept between runs, since GitHub's Ubuntu
+      # mirror can be very slow. The key changes with this file and every month.
+      - name: Restore apt cache
+        id: apt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/apt-cache
+          key: apt-ubuntu-24.04-${{ hashFiles('.github/workflows/build.yaml') }}-${{ steps.spec.outputs.month }}
+          restore-keys: apt-ubuntu-24.04-
 
       - name: Install dependencies
         run: |
+          mkdir -p ~/apt-cache
           sudo add-apt-repository --yes ppa:obsproject/obs-studio
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
+          sudo apt-get install -y --no-install-recommends -o Dir::Cache::Archives="$HOME/apt-cache" \
             build-essential ninja-build pkg-config libgles2-mesa-dev libsimde-dev \
             obs-studio qt6-base-dev qt6-base-private-dev libqt6svg6-dev
+          # Drop superseded versions, then let the save step (not root) read the cache
+          sudo apt-get autoclean -o Dir::Cache::Archives="$HOME/apt-cache"
+          sudo rm -rf ~/apt-cache/partial ~/apt-cache/lock
+          sudo chown -R "$(id -u):$(id -g)" ~/apt-cache
+
+      - name: Save apt cache
+        if: steps.apt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/apt-cache
+          key: ${{ steps.apt-cache.outputs.cache-primary-key }}
 
       - name: Configure
         run: cmake --preset ubuntu-ci-x86_64
