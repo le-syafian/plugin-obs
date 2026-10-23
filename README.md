@@ -26,7 +26,7 @@ Sisa waktu memperhitungkan *speed* di Media Source (misalnya 200% berarti sisa w
 
 Butuh OBS Studio 32 versi 64-bit. File plugin dibuat oleh GitHub Actions (lihat [Build lewat CMake](#build-lewat-cmake-windows-dan-macos-universal)).
 
-1. Buka tab **Actions** repo ini, pilih run **Build** terbaru yang berhasil, unduh artifact `scene-color-countdown-1.2.0-windows-x64`, lalu ekstrak zip-nya.
+1. Unduh `scene-color-countdown-<versi>-windows-x64.zip` dari halaman **Releases** repo ini, lalu ekstrak. Build terbaru yang belum dirilis ada sebagai artifact `scene-color-countdown-<versi>-windows-x64` di tab **Actions**.
 2. Tutup OBS.
 3. Salin folder `obs-plugins` dan `data` dari hasil ekstrak ke folder OBS (biasanya `C:\Program Files\obs-studio`) dan gabungkan dengan folder yang sudah ada. Windows akan meminta izin administrator. Hasilnya:
    - `C:\Program Files\obs-studio\obs-plugins\64bit\scene-color-countdown.dll`
@@ -34,7 +34,7 @@ Butuh OBS Studio 32 versi 64-bit. File plugin dibuat oleh GitHub Actions (lihat 
 4. Buka OBS. Kalau plugin termuat, menu **Tools → Scene Color & Countdown…** muncul dan log OBS (**Help → Log Files**) berisi `[scene-color-countdown] Loaded version 1.2.0`.
 
 Untuk menghapus: tutup OBS, lalu hapus `scene-color-countdown.dll` dan folder `data\obs-plugins\scene-color-countdown`.
-Artifact `…-windows-x64-pdb` berisi simbol debug. File ini tidak perlu untuk memakai plugin, tetapi kalau ditaruh di sebelah `.dll`, crash log OBS jadi lebih mudah dibaca.
+`…-windows-x64-pdb.zip` (atau artifact `…-windows-x64-pdb`) berisi simbol debug. File ini tidak perlu untuk memakai plugin, tetapi kalau ditaruh di sebelah `.dll`, crash log OBS jadi lebih mudah dibaca.
 
 ## Build macOS (tanpa Xcode)
 
@@ -75,6 +75,18 @@ cmake --install build_x64 --config RelWithDebInfo --prefix C:\temp\scene-color-c
 ```
 
 Tanpa `--prefix`, `cmake --install` langsung memasang ke `C:\Program Files\obs-studio`, sehingga butuh terminal administrator.
+
+## Membuat rilis
+
+1. Naikkan versi di `buildspec.json` dan `Makefile`, lalu commit dan push.
+2. Buat tag dengan nomor versi yang sama, lalu push tag-nya:
+
+   ```bash
+   git tag -a 1.2.0 -m "Scene Color & Program Countdown 1.2.0"
+   git push origin 1.2.0
+   ```
+
+Workflow lalu mem-build Windows dan macOS, kemudian membuat GitHub Release berisi `…-windows-x64.zip`, `…-windows-x64-pdb.zip`, dan `…-macos-universal.zip`. Catatan rilisnya diambil dari `.github/release-notes.md`. Kalau nama tag tidak sama dengan versi di `buildspec.json`, rilis tidak dibuat.
 
 ## Setelah OBS di-update
 

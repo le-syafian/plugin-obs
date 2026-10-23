@@ -115,3 +115,47 @@ jobs:
           name: ${{ steps.spec.outputs.name }}-${{ steps.spec.outputs.version }}-macos-universal
           path: release/package/
           if-no-files-found: error
+
+  release:
+    name: Create release
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: [windows, macos]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read build spec
+        id: spec
+        run: |
+          echo "name=$(jq -r .name buildspec.json)" >> "$GITHUB_OUTPUT"
+          echo "version=$(jq -r .version buildspec.json)" >> "$GITHUB_OUTPUT"
+          echo "displayName=$(jq -r .displayName buildspec.json)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          NAME: ${{ steps.spec.outputs.name }}
+          VERSION: ${{ steps.spec.outputs.version }}
+          DISPLAY_NAME: ${{ steps.spec.outputs.displayName }}
+        run: |
+          if [[ "$GITHUB_REF_NAME" != "$VERSION" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match version $VERSION in buildspec.json"
+            exit 1
+          fi
+          base="$NAME-$VERSION"
+          mkdir -p release
+          # The Windows zip is extracted as is into the OBS program folder
+          (cd "artifacts/$base-windows-x64" && zip -r -X "$GITHUB_WORKSPACE/release/$base-windows-x64.zip" .)
+          (cd "artifacts/$base-windows-x64-pdb" && zip -r -X "$GITHUB_WORKSPACE/release/$base-windows-x64-pdb.zip" .)
+          cp "artifacts/$base-macos-universal/$base-macos-universal.zip" release/
+          unzip -l "release/$base-windows-x64.zip"
+          gh release create "$GITHUB_REF_NAME" release/* --title "$DISPLAY_NAME $VERSION" \
+            --notes-file .github/release-notes.md
