@@ -33,11 +33,11 @@ void DrawOnAirDot(QPainter &painter, const QPointF &center, qreal radius, const 
 	QColor dot = color;
 	if (lit) {
 		QColor halo = color;
-		halo.setAlphaF(0.28);
+		halo.setAlphaF(0.28f);
 		painter.setBrush(halo);
 		painter.drawEllipse(center, radius + 2.5, radius + 2.5);
 	} else {
-		dot.setAlphaF(0.3);
+		dot.setAlphaF(0.3f);
 	}
 
 	painter.setBrush(dot);

@@ -1,0 +1,163 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+    tags: ['*']
+    paths-ignore: ['**.md']
+  pull_request:
+    paths-ignore: ['**.md']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    name: Windows x64
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read build spec
+        id: spec
+        run: |
+          $spec = Get-Content -Path buildspec.json -Raw | ConvertFrom-Json
+          "name=$($spec.name)" >> $env:GITHUB_OUTPUT
+          "version=$($spec.version)" >> $env:GITHUB_OUTPUT
+
+      - name: Configure
+        run: cmake --preset windows-ci-x64
+
+      - name: Build
+        run: cmake --build --preset windows-ci-x64 --parallel -- /consoleLoggerParameters:Summary /noLogo
+
+      - name: Install
+        run: cmake --install build_x64 --config RelWithDebInfo --prefix "${{ github.workspace }}/release/package"
+
+      - name: Package
+        env:
+          NAME: ${{ steps.spec.outputs.name }}
+        run: |
+          # The PDB gets its own artifact; the rest is copied as is into the OBS program folder
+          New-Item -ItemType Directory -Force -Path release/pdb | Out-Null
+          Move-Item -Path "release/package/obs-plugins/64bit/$env:NAME.pdb" -Destination release/pdb/
+          foreach ($file in "obs-plugins/64bit/$env:NAME.dll", "data/obs-plugins/$env:NAME/locale/en-US.ini") {
+            if (-not (Test-Path "release/package/$file")) { throw "Missing $file" }
+          }
+          Get-ChildItem -Path release/package -Recurse -File | Select-Object -ExpandProperty FullName
+
+      - name: Upload plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.spec.outputs.name }}-${{ steps.spec.outputs.version }}-windows-x64
+          path: release/package/
+          if-no-files-found: error
+
+      - name: Upload debug symbols
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.spec.outputs.name }}-${{ steps.spec.outputs.version }}-windows-x64-pdb
+          path: release/pdb/
+          if-no-files-found: error
+
+  macos:
+    name: macOS Universal
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read build spec
+        id: spec
+        run: |
+          echo "name=$(jq -r .name buildspec.json)" >> "$GITHUB_OUTPUT"
+          echo "version=$(jq -r .version buildspec.json)" >> "$GITHUB_OUTPUT"
+
+      # OBS 32.2.2 needs Xcode 26.5 to build libobs
+      - name: Select Xcode
+        run: sudo xcode-select --switch /Applications/Xcode_26.5.app/Contents/Developer
+
+      - name: Configure
+        run: cmake --preset macos-ci
+
+      - name: Build
+        run: cmake --build --preset macos-ci --parallel -- -quiet
+
+      - name: Install
+        run: cmake --install build_macos --config RelWithDebInfo --prefix "${{ github.workspace }}/release/install"
+
+      - name: Package
+        env:
+          NAME: ${{ steps.spec.outputs.name }}
+          VERSION: ${{ steps.spec.outputs.version }}
+        run: |
+          bundle="release/install/$NAME.plugin"
+          archs="$(lipo -archs "$bundle/Contents/MacOS/$NAME")"
+          echo "Architectures: $archs"
+          [[ "$archs" == *arm64* && "$archs" == *x86_64* ]]
+          test -f "$bundle/Contents/Resources/locale/en-US.ini"
+          codesign --verify --strict --verbose=2 "$bundle"
+          mkdir -p release/package
+          ditto -c -k --keepParent "$bundle" "release/package/$NAME-$VERSION-macos-universal.zip"
+
+      - name: Upload plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.spec.outputs.name }}-${{ steps.spec.outputs.version }}-macos-universal
+          path: release/package/
+          if-no-files-found: error
+
+  ubuntu:
+    name: Ubuntu 24.04 x86_64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read build spec
+        id: spec
+        run: |
+          echo "name=$(jq -r .name buildspec.json)" >> "$GITHUB_OUTPUT"
+          echo "version=$(jq -r .version buildspec.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: |
+          sudo add-apt-repository --yes ppa:obsproject/obs-studio
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential ninja-build pkg-config libgles2-mesa-dev libsimde-dev \
+            obs-studio qt6-base-dev qt6-base-private-dev libqt6svg6-dev
+
+      - name: Configure
+        run: cmake --preset ubuntu-ci-x86_64
+
+      - name: Build
+        run: cmake --build --preset ubuntu-ci-x86_64 --parallel
+
+      - name: Install
+        run: cmake --install build_x86_64 --prefix "${{ github.workspace }}/release/install"
+
+      - name: Package
+        env:
+          NAME: ${{ steps.spec.outputs.name }}
+        run: |
+          # Layout of ~/.config/obs-studio/plugins/<name>
+          plugin="release/package/$NAME"
+          mkdir -p "$plugin/bin/64bit" "$plugin/data"
+          cp release/install/lib/*/obs-plugins/"$NAME".so "$plugin/bin/64bit/"
+          cp -R release/install/share/obs/obs-plugins/"$NAME"/. "$plugin/data/"
+          test -f "$plugin/data/locale/en-US.ini"
+          find release/package -type f
+
+      - name: Upload plugin
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.spec.outputs.name }}-${{ steps.spec.outputs.version }}-ubuntu-24.04-x86_64
+          path: release/package/
+          if-no-files-found: error

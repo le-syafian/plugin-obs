@@ -100,13 +100,13 @@ std::vector<MediaInfo> CollectMedia(obs_source_t *root, bool includeIdle)
 			info.looping = obs_data_get_bool(settings, "looping");
 			const long long percent = obs_data_get_int(settings, "speed_percent");
 			if (percent > 0)
-				speed = percent / 100.0;
+				speed = double(percent) / 100.0;
 		} else if (id && strcmp(id, "vlc_source") == 0) {
 			info.looping = obs_data_get_bool(settings, "loop");
 		}
 
 		if (info.durationMs > 0)
-			info.remainingMs = (qint64)((info.durationMs - info.elapsedMs) / speed);
+			info.remainingMs = (qint64)(double(info.durationMs - info.elapsedMs) / speed);
 
 		result.push_back(info);
 	}
@@ -225,7 +225,7 @@ void DrawStateIcon(QPainter &painter, const QRectF &rect, bool paused, bool stop
 
 QColor WithAlpha(QColor color, qreal alpha)
 {
-	color.setAlphaF(alpha);
+	color.setAlphaF(float(alpha));
 	return color;
 }
 
@@ -356,7 +356,7 @@ void CountdownView::paintEvent(QPaintEvent *)
 	qint64 elapsed = state.elapsedMs;
 	qint64 remaining = state.remainingMs;
 	if (dragging && state.durationMs > 0) {
-		elapsed = (qint64)(dragFraction * state.durationMs);
+		elapsed = (qint64)(dragFraction * double(state.durationMs));
 		remaining = state.durationMs - elapsed;
 	}
 
@@ -574,7 +574,7 @@ void PreviewMediaBar::paintEvent(QPaintEvent *)
 {
 	QPainter painter(this);
 	QColor line = palette().color(QPalette::WindowText);
-	line.setAlphaF(0.12);
+	line.setAlphaF(0.12f);
 	painter.fillRect(QRect(0, 0, width(), 1), line);
 }
 

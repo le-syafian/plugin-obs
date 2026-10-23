@@ -1,14 +1,16 @@
 # Scene Color & Program Countdown - OBS Studio plugin, macOS build.
 #
 # Builds straight against the installed OBS.app with the Command Line Tools
-# (clang++ + make), no Xcode or CMake needed.
+# (clang++ + make), no Xcode or CMake needed. Windows, Linux and universal
+# macOS builds use CMake instead (CMakeLists.txt, buildspec.json).
 #
 #   make deps      fetch headers into .deps/ (once)
 #   make           build build/scene-color-countdown.plugin
 #   make install   copy the plugin into OBS's user plugin folder
 
 PLUGIN      := scene-color-countdown
-VERSION     := 1.1.0
+# Keep in sync with "version" in buildspec.json
+VERSION     := 1.2.0
 BUNDLE_ID   := com.le-syafian.scene-color-countdown
 
 OBS_APP     ?= /Applications/OBS.app
@@ -68,7 +70,8 @@ $(GEN_DIR)/obsconfig.h:
 	@mkdir -p $(@D)
 	@printf '#pragma once\n#define OBS_RELEASE_CANDIDATE 0\n#define OBS_BETA 0\n' > $@
 
-$(OBJ_DIR)/%.o: src/%.cpp $(GEN_DIR)/obsconfig.h | check-deps
+# Depends on the Makefile so that changed flags (e.g. VERSION) rebuild everything
+$(OBJ_DIR)/%.o: src/%.cpp $(GEN_DIR)/obsconfig.h Makefile | check-deps
 	@mkdir -p $(@D)
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 

@@ -352,7 +352,7 @@ private:
 
 	static void PaintTint(QPainter *painter, const QRect &rect, QColor color)
 	{
-		color.setAlphaF(0.3);
+		color.setAlphaF(0.3f);
 		painter->save();
 		painter->setRenderHint(QPainter::Antialiasing, true);
 		painter->setPen(Qt::NoPen);
