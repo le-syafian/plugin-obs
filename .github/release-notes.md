@@ -1,23 +1,23 @@
-Plugin OBS Studio 32: warna scene dan tanda ON AIR/PREVIEW di panel Scenes, countdown video di bawah Program, serta tombol putar video di Preview (Studio Mode).
+An OBS Studio 32 plugin: scene colors and ON AIR/PREVIEW marks in the Scenes dock, a video countdown below Program, and play controls for the video in Preview (Studio Mode).
 
-Butuh OBS Studio 32.2 atau lebih baru (diuji di 32.2.2). Panduan lengkap, termasuk solusi kalau plugin tidak muncul, ada di [README → Cara pasang](https://github.com/le-syafian/plugin-obs#cara-pasang).
+Requires OBS Studio 32.2 or newer (tested on 32.2.2). The full guide, including what to do if the plugin doesn't show up, is in the [README → Installation](https://github.com/le-syafian/plugin-obs#installation).
 
 ### Windows 10/11 (64-bit)
 
-1. Tutup OBS.
-2. Unduh `scene-color-countdown-…-windows-x64.zip`, klik kanan → **Extract All…**. Isinya dua folder: `obs-plugins` dan `data`.
-3. Salin kedua folder itu (bukan folder pembungkusnya) ke folder OBS, biasanya `C:\Program Files\obs-studio`, lalu klik **Continue** saat diminta izin administrator. Hasilnya `obs-studio\obs-plugins\64bit\scene-color-countdown.dll` dan `obs-studio\data\obs-plugins\scene-color-countdown\locale\`.
-4. Buka OBS. Kalau plugin termuat, menu **Tools → Scene Color & Countdown…** muncul.
+1. Close OBS.
+2. Download `scene-color-countdown-…-windows-x64.zip`, then right-click it → **Extract All…**. It contains two folders: `obs-plugins` and `data`.
+3. Copy those two folders (not the folder that wraps them) into the OBS folder, usually `C:\Program Files\obs-studio`, and click **Continue** when asked for administrator permission. The result is `obs-studio\obs-plugins\64bit\scene-color-countdown.dll` and `obs-studio\data\obs-plugins\scene-color-countdown\locale\`.
+4. Start OBS. If the plugin loaded, **Tools → Scene Color & Countdown…** appears.
 
-`…-windows-x64-pdb.zip` hanya berisi simbol debug, jadi tidak perlu dipasang.
+`…-windows-x64-pdb.zip` only holds debug symbols and doesn't need to be installed.
 
-### macOS 13+ (Apple Silicon dan Intel)
+### macOS 13+ (Apple Silicon and Intel)
 
-1. Tutup OBS.
-2. Ekstrak `scene-color-countdown-…-macos-universal.zip` sampai muncul `scene-color-countdown.plugin`.
-3. Pindahkan ke `~/Library/Application Support/obs-studio/plugins/`. Di Finder pakai **Go → Go to Folder…**, dan buat folder `plugins` kalau belum ada.
-4. Buka Terminal, lalu jalankan:
+1. Quit OBS.
+2. Extract `scene-color-countdown-…-macos-universal.zip` to get `scene-color-countdown.plugin`.
+3. Move it into `~/Library/Application Support/obs-studio/plugins/`. In Finder, use **Go → Go to Folder…**, and create the `plugins` folder if it doesn't exist.
+4. Open Terminal and run:
    ```bash
    xattr -dr com.apple.quarantine ~/Library/Application\ Support/obs-studio/plugins/scene-color-countdown.plugin
    ```
-5. Buka OBS. Kalau plugin termuat, menu **Tools → Scene Color & Countdown…** muncul.
+5. Start OBS. If the plugin loaded, **Tools → Scene Color & Countdown…** appears.
