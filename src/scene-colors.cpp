@@ -1,6 +1,7 @@
 #include "scene-colors.hpp"
 #include "plugin-settings.hpp"
 #include "plugin-support.hpp"
+#include "ui-helpers.hpp"
 
 #include <obs-frontend-api.h>
 #include <obs.hpp>
@@ -11,17 +12,29 @@
 #include <QApplication>
 #include <QColorDialog>
 #include <QContextMenuEvent>
+#include <QDateTime>
+#include <QHelpEvent>
 #include <QListWidget>
 #include <QMainWindow>
 #include <QMenu>
 #include <QPainter>
-#include <QPixmap>
+#include <QToolTip>
+
+#include <algorithm>
+#include <cmath>
 
 namespace {
 
-/* Item data role that hands the color to the delegate. OBS itself only uses
- * Qt::UserRole and Qt::UserRole + 1 on scene list items. */
+/* Item data roles that hand color and tally to the delegate. OBS itself only
+ * uses Qt::UserRole and Qt::UserRole + 1 on scene list items. */
 constexpr int kSceneColorRole = Qt::UserRole + 0x5CC;
+constexpr int kTallyRole = Qt::UserRole + 0x5CD;
+
+constexpr int kTallyPreview = 1;
+constexpr int kTallyProgram = 2;
+
+constexpr int kTallyPollMs = 150;
+constexpr int kStripeWidth = 5;
 
 /* Key inside the scene's private settings, saved with the scene collection */
 constexpr const char *kColorKey = "scene-color-countdown.color";
@@ -68,32 +81,81 @@ void WriteSceneColor(obs_source_t *scene, const QColor &color)
 		obs_data_erase(priv, kColorKey);
 }
 
-QColor ContrastingText(const QColor &background)
+QString SourceName(obs_source_t *source)
 {
-	const double luma = 0.299 * background.redF() + 0.587 * background.greenF() + 0.114 * background.blueF();
-	return luma > 0.6 ? QColor(24, 24, 24) : QColor(255, 255, 255);
+	return QString::fromUtf8(obs_source_get_name(source));
 }
 
-QIcon SwatchIcon(const QColor &color)
+/* Scenes really visible on the output: the current one and, during a
+ * transition, also the incoming one. In studio mode with "Duplicate Scene"
+ * the output uses private copies that keep the original scene names. */
+QStringList ProgramScenes()
 {
-	const qreal dpr = qApp->devicePixelRatio();
-	QPixmap pixmap(QSize(16, 16) * dpr);
-	pixmap.setDevicePixelRatio(dpr);
-	pixmap.fill(Qt::transparent);
+	QStringList names;
 
-	QPainter painter(&pixmap);
-	painter.setRenderHint(QPainter::Antialiasing, true);
-	painter.setPen(QPen(color.darker(150), 1));
-	painter.setBrush(color);
-	painter.drawRoundedRect(QRectF(1.5, 1.5, 13, 13), 3, 3);
-	return QIcon(pixmap);
+	OBSSourceAutoRelease output = obs_get_output_source(0);
+	if (output && obs_source_get_type(output) == OBS_SOURCE_TYPE_TRANSITION) {
+		for (obs_transition_target target : {OBS_TRANSITION_SOURCE_A, OBS_TRANSITION_SOURCE_B}) {
+			OBSSourceAutoRelease source = obs_transition_get_source(output, target);
+			if (source)
+				names << SourceName(source);
+		}
+	} else if (output) {
+		names << SourceName(output);
+	} else {
+		OBSSourceAutoRelease current = obs_frontend_get_current_scene();
+		if (current)
+			names << SourceName(current);
+	}
+
+	return names;
+}
+
+QString PreviewScene()
+{
+	if (!obs_frontend_preview_program_mode_active())
+		return {};
+
+	OBSSourceAutoRelease preview = obs_frontend_get_current_preview_scene();
+	return preview ? SourceName(preview) : QString();
+}
+
+/* Blinking dot for ON AIR, eye for PREVIEW, on the right of the row */
+struct TallySymbols {
+	qreal dotRadius = 0;
+	QSizeF eye;
+	int width = 0; /* 0: no room, the row only gets frame and tint */
+};
+
+TallySymbols MeasureSymbols(const QRect &rect, int tally)
+{
+	TallySymbols symbols;
+	if (!tally)
+		return symbols;
+
+	symbols.dotRadius = std::clamp(rect.height() * 0.16, 3.5, 5.0);
+	const qreal eyeWidth = std::clamp(rect.height() * 0.62, 12.0, 16.0);
+	symbols.eye = QSizeF(eyeWidth, eyeWidth * 0.62);
+
+	qreal width = 0;
+	if (tally & kTallyProgram)
+		width += 2 * (symbols.dotRadius + 2.5);
+	if (tally & kTallyPreview)
+		width += eyeWidth;
+	if ((tally & kTallyProgram) && (tally & kTallyPreview))
+		width += 4;
+
+	symbols.width = (int)std::ceil(width);
+	if (rect.width() < symbols.width + 58)
+		symbols.width = 0;
+	return symbols;
 }
 
 /*
- * Wraps OBS's own delegate: paints colored scenes itself and forwards
- * everything else. OBS listens to the original delegate's closeEditor() to
- * apply scene renames, so editing must keep going through that delegate;
- * this class only relays its signals to the view.
+ * Wraps OBS's own delegate: paints colored and tallied scenes itself and
+ * forwards everything else. OBS listens to the original delegate's
+ * closeEditor() to apply scene renames, so editing must keep going through
+ * that delegate; this class only relays its signals to the view.
  */
 class SceneColorDelegate : public QAbstractItemDelegate {
 public:
@@ -109,17 +171,49 @@ public:
 
 	void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override
 	{
-		const QColor color = index.data(kSceneColorRole).value<QColor>();
-		if (!color.isValid()) {
-			if (base)
-				base->paint(painter, option, index);
+		if (!base)
+			return;
+
+		const PluginSettings &cfg = Settings();
+		const QColor sceneColor = index.data(kSceneColorRole).value<QColor>();
+		const int tally = cfg.tallyEnabled ? index.data(kTallyRole).toInt() : 0;
+
+		if (!sceneColor.isValid() && !tally) {
+			base->paint(painter, option, index);
 			return;
 		}
 
-		if (Settings().colorStyle == SceneColorStyle::Stripe)
-			PaintStripe(painter, option, index, color);
-		else
-			PaintFill(painter, option, index, color);
+		const bool onAir = tally & kTallyProgram;
+		const QColor tallyColor = onAir ? cfg.tallyProgramColor : cfg.tallyPreviewColor;
+		const bool fillTally = tally && cfg.tallyStyle == TallyStyle::Fill;
+
+		/* room for the ON AIR dot / PREVIEW eye on the right */
+		const TallySymbols symbols = MeasureSymbols(option.rect, tally);
+		const int reserved = symbols.width ? symbols.width + 10 : 0;
+
+		if (fillTally) {
+			PaintFill(painter, option, index, tallyColor, reserved, true);
+			if (sceneColor.isValid())
+				PaintStripe(painter, option.rect, sceneColor);
+		} else if (sceneColor.isValid() && cfg.colorStyle == SceneColorStyle::Fill) {
+			PaintFill(painter, option, index, sceneColor, reserved, tally != 0);
+		} else {
+			/* keep the theme look: tint, OBS's own painting, optional stripe */
+			if (tally)
+				PaintTint(painter, option.rect, tallyColor);
+
+			QStyleOptionViewItem themed(option);
+			if (sceneColor.isValid())
+				themed.rect.setLeft(option.rect.left() + kStripeWidth + 3);
+			themed.rect.setRight(option.rect.right() - reserved);
+			base->paint(painter, themed, index);
+
+			if (sceneColor.isValid())
+				PaintStripe(painter, option.rect, sceneColor);
+		}
+
+		if (tally)
+			PaintTally(painter, option.rect, tally, fillTally, symbols);
 	}
 
 	QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override
@@ -169,6 +263,20 @@ public:
 	bool helpEvent(QHelpEvent *event, QAbstractItemView *itemView, const QStyleOptionViewItem &option,
 		       const QModelIndex &index) override
 	{
+		/* the symbols have no text, so say what they mean on hover */
+		const int tally = Settings().tallyEnabled ? index.data(kTallyRole).toInt() : 0;
+		if (event && itemView && event->type() == QEvent::ToolTip && tally &&
+		    !index.data(Qt::ToolTipRole).isValid()) {
+			QStringList parts;
+			if (tally & kTallyProgram)
+				parts << QTStr("Tally.Program");
+			if (tally & kTallyPreview)
+				parts << QTStr("Tally.Preview");
+			QToolTip::showText(event->globalPos(), parts.join(QStringLiteral(" · ")),
+					   itemView->viewport(), option.rect);
+			return true;
+		}
+
 		return base && base->helpEvent(event, itemView, option, index);
 	}
 
@@ -176,7 +284,7 @@ public:
 	{
 		QList<int> roles = base ? base->paintingRoles() : QList<int>();
 		if (!roles.isEmpty())
-			roles.append(kSceneColorRole);
+			roles << kSceneColorRole << kTallyRole;
 		return roles;
 	}
 
@@ -189,7 +297,7 @@ public:
 
 private:
 	void PaintFill(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index,
-		       const QColor &color) const
+		       const QColor &color, int reservedRight, bool tallied) const
 	{
 		const bool selected = option.state & QStyle::State_Selected;
 		const bool hovered = option.state & QStyle::State_MouseOver;
@@ -205,11 +313,12 @@ private:
 		painter->setBrush(hovered && !selected ? color.lighter(115) : color);
 		painter->drawRoundedRect(box, 4, 4);
 
-		if (selected) {
-			/* keep the scene color, mark the selection with an outline */
-			painter->setPen(QPen(textColor, 2));
+		/* keep the color, mark the selection with an outline (a tallied row
+		 * already gets a frame, and the selection is always tallied) */
+		if (selected && !tallied) {
+			painter->setPen(QPen(textColor, 1.5));
 			painter->setBrush(Qt::NoBrush);
-			painter->drawRoundedRect(box.adjusted(1, 1, -1, -1), 3, 3);
+			painter->drawRoundedRect(box.adjusted(2.5, 2.5, -2.5, -2.5), 2.5, 2.5);
 		}
 
 		QFont font = option.font;
@@ -218,7 +327,7 @@ private:
 		painter->setPen(textColor);
 
 		const QString text = index.data(Qt::DisplayRole).toString();
-		const QRect textRect = option.rect.adjusted(8, 2, -8, -2);
+		const QRect textRect = option.rect.adjusted(8, 2, -8 - reservedRight, -2);
 		if (grid) {
 			painter->drawText(textRect, Qt::AlignCenter | Qt::TextWordWrap, text);
 		} else {
@@ -230,24 +339,71 @@ private:
 		painter->restore();
 	}
 
-	void PaintStripe(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index,
-			 const QColor &color) const
+	static void PaintStripe(QPainter *painter, const QRect &rect, const QColor &color)
 	{
-		constexpr int stripeWidth = 5;
-
-		QStyleOptionViewItem shifted(option);
-		shifted.rect.setLeft(option.rect.left() + stripeWidth + 3);
-		if (base)
-			base->paint(painter, shifted, index);
-
 		painter->save();
 		painter->setRenderHint(QPainter::Antialiasing, true);
 		painter->setPen(Qt::NoPen);
 		painter->setBrush(color);
-		painter->drawRoundedRect(
-			QRectF(option.rect.left() + 1, option.rect.top() + 2, stripeWidth, option.rect.height() - 4), 2,
-			2);
+		painter->drawRoundedRect(QRectF(rect.left() + 1.5, rect.top() + 2.5, kStripeWidth, rect.height() - 5), 2,
+					 2);
 		painter->restore();
+	}
+
+	static void PaintTint(QPainter *painter, const QRect &rect, QColor color)
+	{
+		color.setAlphaF(0.3);
+		painter->save();
+		painter->setRenderHint(QPainter::Antialiasing, true);
+		painter->setPen(Qt::NoPen);
+		painter->setBrush(color);
+		painter->drawRoundedRect(QRectF(rect).adjusted(1, 1, -1, -1), 4, 4);
+		painter->restore();
+	}
+
+	static void PaintTally(QPainter *painter, const QRect &rect, int tally, bool filled,
+			       const TallySymbols &symbols)
+	{
+		const PluginSettings &cfg = Settings();
+		const bool onAir = tally & kTallyProgram;
+		const bool inPreview = tally & kTallyPreview;
+		const QColor color = onAir ? cfg.tallyProgramColor : cfg.tallyPreviewColor;
+		const QRectF box = QRectF(rect).adjusted(1.5, 1.5, -1.5, -1.5);
+
+		painter->save();
+		painter->setRenderHint(QPainter::Antialiasing, true);
+		painter->setBrush(Qt::NoBrush);
+
+		if (!filled) {
+			painter->setPen(QPen(color, 2));
+			painter->drawRoundedRect(box, 4, 4);
+		}
+
+		/* ON AIR and also in Preview: inner frame in the preview color */
+		if (onAir && inPreview) {
+			painter->setPen(QPen(cfg.tallyPreviewColor, 1.5));
+			painter->drawRoundedRect(box.adjusted(2, 2, -2, -2), 2.5, 2.5);
+		}
+
+		painter->restore();
+
+		if (!symbols.width)
+			return;
+
+		/* right to left: the ON AIR dot, then the PREVIEW eye */
+		qreal right = rect.right() - 6;
+		const qreal centerY = rect.center().y() + 0.5;
+		if (onAir) {
+			const qreal dotBox = 2 * (symbols.dotRadius + 2.5);
+			DrawOnAirDot(*painter, QPointF(right - dotBox / 2, centerY), symbols.dotRadius,
+				     filled ? QColor(Qt::white) : cfg.tallyProgramColor, TallyBlinkOn());
+			right -= dotBox + 4;
+		}
+		if (inPreview) {
+			const QRectF eye(right - symbols.eye.width(), centerY - symbols.eye.height() / 2,
+					 symbols.eye.width(), symbols.eye.height());
+			DrawPreviewEye(*painter, eye, filled ? QColor(Qt::white) : cfg.tallyPreviewColor);
+		}
 	}
 
 	QPointer<QAbstractItemDelegate> base;
@@ -261,6 +417,14 @@ SceneColorManager::SceneColorManager(QMainWindow *main) : QObject(main)
 	refreshTimer.setSingleShot(true);
 	refreshTimer.setInterval(0);
 	connect(&refreshTimer, &QTimer::timeout, this, &SceneColorManager::RefreshNow);
+
+	/* the output's sources change without a frontend event when a
+	 * transition starts, so tally is polled lightly */
+	tallyTimer.setInterval(kTallyPollMs);
+	connect(&tallyTimer, &QTimer::timeout, this, &SceneColorManager::RefreshTally);
+
+	blinkTimer.setSingleShot(true);
+	connect(&blinkTimer, &QTimer::timeout, this, &SceneColorManager::BlinkTick);
 
 	list = main ? main->findChild<QListWidget *>(QStringLiteral("scenes")) : nullptr;
 	if (!list) {
@@ -291,14 +455,16 @@ SceneColorManager::SceneColorManager(QMainWindow *main) : QObject(main)
 				ScheduleRefresh();
 		});
 
-	RefreshNow();
-	plog(LOG_INFO, "Scene colors attached to the Scenes dock");
+	ApplySettings();
+	plog(LOG_INFO, "Scene colors and tally attached to the Scenes dock");
 }
 
 SceneColorManager::~SceneColorManager()
 {
 	DisarmMenuHook();
 	refreshTimer.stop();
+	tallyTimer.stop();
+	blinkTimer.stop();
 
 	if (list) {
 		QObject::disconnect(list->model(), nullptr, this, nullptr);
@@ -308,8 +474,10 @@ SceneColorManager::~SceneColorManager()
 		if (originalDelegate && list->itemDelegate() == colorDelegate.data())
 			list->setItemDelegate(originalDelegate);
 
-		for (int i = 0; i < list->count(); i++)
+		for (int i = 0; i < list->count(); i++) {
 			list->item(i)->setData(kSceneColorRole, QVariant());
+			list->item(i)->setData(kTallyRole, QVariant());
+		}
 	}
 
 	delete colorDelegate.data();
@@ -336,6 +504,85 @@ void SceneColorManager::RefreshNow()
 			item->setData(kSceneColorRole, value);
 	}
 	applying = false;
+
+	programScenes = ProgramScenes();
+	previewScene = PreviewScene();
+	ApplyTally();
+}
+
+void SceneColorManager::RefreshTally()
+{
+	if (!list || !Settings().tallyEnabled)
+		return;
+
+	QStringList program = ProgramScenes();
+	QString preview = PreviewScene();
+	if (program == programScenes && preview == previewScene)
+		return;
+
+	programScenes = std::move(program);
+	previewScene = std::move(preview);
+	ApplyTally();
+}
+
+void SceneColorManager::ApplyTally()
+{
+	if (!list)
+		return;
+
+	applying = true;
+	for (int i = 0; i < list->count(); i++) {
+		QListWidgetItem *item = list->item(i);
+		const QString name = item->text();
+
+		int flags = 0;
+		if (!previewScene.isEmpty() && name == previewScene)
+			flags |= kTallyPreview;
+		if (programScenes.contains(name))
+			flags |= kTallyProgram;
+
+		const QVariant value = flags ? QVariant(flags) : QVariant();
+		if (item->data(kTallyRole) != value)
+			item->setData(kTallyRole, value);
+	}
+	applying = false;
+}
+
+void SceneColorManager::ApplySettings()
+{
+	if (Settings().tallyEnabled) {
+		if (!tallyTimer.isActive())
+			tallyTimer.start();
+		if (!blinkTimer.isActive())
+			ScheduleBlink();
+	} else {
+		tallyTimer.stop();
+		blinkTimer.stop();
+	}
+
+	RefreshNow();
+	Repaint();
+}
+
+/* Fire right after each blink boundary, so the dots in the Scenes dock and
+ * the bars under Preview/Program blink together */
+void SceneColorManager::ScheduleBlink()
+{
+	const qint64 now = QDateTime::currentMSecsSinceEpoch();
+	blinkTimer.start(int(kTallyBlinkMs - now % kTallyBlinkMs) + 2);
+}
+
+void SceneColorManager::BlinkTick()
+{
+	if (!list || !Settings().tallyEnabled)
+		return;
+
+	for (int i = 0; i < list->count(); i++) {
+		QListWidgetItem *item = list->item(i);
+		if (item->data(kTallyRole).toInt() & kTallyProgram)
+			list->viewport()->update(list->visualItemRect(item));
+	}
+	ScheduleBlink();
 }
 
 void SceneColorManager::Repaint()
@@ -420,7 +667,7 @@ void SceneColorManager::InjectMenu(QMenu *menu, const QString &sceneName)
 
 	auto *colorMenu = new QMenu(QTStr("SceneColor.Menu"), menu);
 	if (current.isValid())
-		colorMenu->setIcon(SwatchIcon(current));
+		colorMenu->setIcon(ColorSwatchIcon(current));
 
 	auto *group = new QActionGroup(colorMenu);
 	group->setExclusive(true);
@@ -428,7 +675,7 @@ void SceneColorManager::InjectMenu(QMenu *menu, const QString &sceneName)
 	bool isPreset = false;
 	for (const PresetColor &preset : kPresets) {
 		const QColor color(preset.rgb);
-		QAction *action = colorMenu->addAction(SwatchIcon(color), QTStr(preset.textKey));
+		QAction *action = colorMenu->addAction(ColorSwatchIcon(color), QTStr(preset.textKey));
 		action->setCheckable(true);
 		action->setChecked(current == color);
 		isPreset = isPreset || current == color;
@@ -441,7 +688,7 @@ void SceneColorManager::InjectMenu(QMenu *menu, const QString &sceneName)
 
 	QAction *custom = colorMenu->addAction(QTStr("SceneColor.Custom"));
 	if (current.isValid() && !isPreset) {
-		custom->setIcon(SwatchIcon(current));
+		custom->setIcon(ColorSwatchIcon(current));
 		custom->setCheckable(true);
 		custom->setChecked(true);
 		group->addAction(custom);

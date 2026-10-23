@@ -8,7 +8,7 @@
 #   make install   copy the plugin into OBS's user plugin folder
 
 PLUGIN      := scene-color-countdown
-VERSION     := 1.0.0
+VERSION     := 1.1.0
 BUNDLE_ID   := com.le-syafian.scene-color-countdown
 
 OBS_APP     ?= /Applications/OBS.app

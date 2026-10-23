@@ -1,15 +1,21 @@
 # Scene Color & Program Countdown
 
-Plugin OBS Studio (diuji di OBS 32.2.2, macOS Apple Silicon) dengan dua fitur:
+Plugin OBS Studio (diuji di OBS 32.2.2, macOS Apple Silicon) dengan empat fitur:
 
 1. **Warna scene di panel Scenes**: klik kanan scene → **Scene Color / Warna Scene** → pilih warna preset, *Custom Color…*, atau *Remove Color*.
    Warna disimpan di *private settings* scene, jadi ikut tersimpan di scene collection.
-2. **Countdown di bawah Program**: bar yang menampilkan nama video, progress, waktu berjalan/durasi, dan **sisa waktu** video yang sedang tayang di Program.
+2. **Tanda ON AIR / PREVIEW di panel Scenes**: scene yang tayang di Program dapat bingkai merah dan **titik merah berkedip**; scene di Preview (Studio Mode) dapat bingkai hijau dan **simbol mata**. Arahkan kursor ke scene untuk melihat artinya.
+   - Mengikuti output yang sebenarnya, jadi saat transisi berjalan scene asal dan tujuan sama-sama ON AIR.
+   - Kalau scene yang sama ada di Program dan Preview, keduanya tampil (bingkai merah + bingkai dalam hijau, mata + titik).
+3. **Countdown di bawah Program**: bar yang menampilkan nama video, progress, waktu berjalan/durasi, dan **sisa waktu** video yang sedang tayang di Program.
    - Mode biasa: bar ada di bawah area preview (yang memang adalah Program). Bar tetap tampil walaupun preview dimatikan.
    - Studio Mode: bar ada tepat di bawah tampilan Program.
    - Kuning saat sisa ≤ 10 detik, merah (berkedip) saat ≤ 5 detik. Di dua zona ini sisa waktu tampil sampai persepuluh detik.
+4. **Putar video di Preview (Studio Mode)**: bar di bawah Preview dengan tombol Play/Pause, putar ulang dari awal, dan Stop, plus countdown. Klik atau geser progress bar untuk seek.
+   - Di OBS, video di scene Preview biasanya belum jalan sampai on air; tombol Play memutarnya dari awal supaya bisa dicek dulu.
+   - Kalau video yang sama sedang ON AIR (misalnya scene Preview = scene Program), kontrolnya dikunci dan muncul titik merah berkedip, supaya output live tidak ikut terganggu.
 
-Pengaturan ada di **Tools → Scene Color & Countdown…**: ambang peringatan/kritis, kedip, tampilan waktu berjalan, dan gaya warna scene (seluruh baris atau strip di kiri).
+Pengaturan ada di **Tools → Scene Color & Countdown…**: ambang peringatan/kritis, kedip, tampilan waktu berjalan, kontrol Preview, warna ON AIR/PREVIEW, gaya tanda (bingkai + simbol, atau seluruh baris diwarnai), dan gaya warna scene (seluruh baris atau strip di kiri).
 
 ## Cara countdown memilih video
 

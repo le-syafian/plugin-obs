@@ -33,7 +33,7 @@ void OpenSettings()
 	auto *main = static_cast<QMainWindow *>(obs_frontend_get_main_window());
 	ShowSettingsDialog(main, []() {
 		if (sceneColors)
-			sceneColors->Repaint();
+			sceneColors->ApplySettings();
 		if (countdown)
 			countdown->UpdatePlacement();
 	});
@@ -78,10 +78,20 @@ void OnFrontendEvent(enum obs_frontend_event event, void *)
 		if (sceneColors)
 			sceneColors->ScheduleRefresh();
 		break;
+	case OBS_FRONTEND_EVENT_SCENE_CHANGED:
+	case OBS_FRONTEND_EVENT_PREVIEW_SCENE_CHANGED:
+	case OBS_FRONTEND_EVENT_TRANSITION_STOPPED:
+		if (sceneColors)
+			sceneColors->RefreshTally();
+		if (countdown)
+			countdown->Tick();
+		break;
 	case OBS_FRONTEND_EVENT_STUDIO_MODE_ENABLED:
 	case OBS_FRONTEND_EVENT_STUDIO_MODE_DISABLED:
 		if (countdown)
 			countdown->UpdatePlacement();
+		if (sceneColors)
+			sceneColors->RefreshTally();
 		break;
 	case OBS_FRONTEND_EVENT_THEME_CHANGED:
 		if (sceneColors)
